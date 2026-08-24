@@ -1,0 +1,19 @@
+# Work Factor -- dependencies
+#
+# Analysis and validation layers (validate.py, wf/analysis.py) need ONLY numpy
+# and scipy. They run with no network access, no API key, and without agentdojo
+# installed.
+numpy>=1.24
+scipy>=1.10
+
+# Required only to execute a real slice against the benchmark.
+#
+# The pin is protocol-relevant, not routine hygiene: 0.1.35 is the unique
+# release exposing benchmark version v1.2.2, which is the task set this
+# protocol is locked to. Note the two namespaces -- the PyPI distribution is
+# 0.1.35; "v1.2.2" is the benchmark/task-set identifier used inside the
+# package. `pip install agentdojo==1.2.2` does not exist. See COMPATIBILITY.md.
+agentdojo==0.1.35
+
+# Not installed, and therefore currently unavailable:
+#   transformers, torch  -- required by the transformers_pi_detector defense.

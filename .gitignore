@@ -1,0 +1,45 @@
+# --- credentials -----------------------------------------------------------
+# Never commit an API key. If one is ever committed, rotate it -- removing it
+# in a later commit does not remove it from history.
+.env
+.env.*
+*.key
+*.pem
+secrets.*
+credentials.*
+
+# --- experiment artifacts --------------------------------------------------
+# Experiment databases and run logs are generated data, not source. They are
+# reproduced by running the protocol, and committing them would put unversioned
+# results in the repository.
+runs/
+*.sqlite
+*.sqlite3
+*.db
+*.log
+
+# --- environments ----------------------------------------------------------
+.venv/
+venv/
+env/
+ENV/
+.venvs/
+
+# --- python ----------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# --- editors / OS ----------------------------------------------------------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
