@@ -346,8 +346,9 @@ def upstream_defense_name(components: tuple[str, ...]) -> str | None:
         raise NotImplementedError(
             f"AgentDojo v1.2.2 PipelineConfig.defense takes a single defense, but "
             f"{list(components)} was requested. Stacks require our own pipeline "
-            "composition wrapping the original implementations; running this as a "
-            "single defense would silently measure a different configuration."
+            "composition wrapping the original implementations (wf/compose.py, used "
+            "by AgentDojoAdapter._pipeline); running this through PipelineConfig "
+            "as a single defense would silently measure a different configuration."
         )
     name = components[0]
     if name not in DEFENSE_NAME_MAP:
@@ -425,6 +426,20 @@ class AgentDojoAdapter:
         key = tuple(sorted(defense_components))
         if key in self._pipelines:
             return self._pipelines[key]
+        if len(key) > 1:
+            # A stack. AgentDojo's own factory cannot express one (see
+            # upstream_defense_name), so it is composed from the UPSTREAM
+            # elements by wf/compose.py. Every component must still be a
+            # mappable upstream defense -- checked one at a time here so the
+            # error names the offending component, not the whole stack.
+            for component in key:
+                upstream_defense_name((component,))
+            from agentdojo.agent_pipeline.agent_pipeline import load_system_message
+            from wf.compose import build
+            pipeline = build(key, model_id, load_system_message(None),
+                             tool_output_format="yaml")
+            self._pipelines[key] = pipeline
+            return pipeline
         from agentdojo.agent_pipeline.agent_pipeline import AgentPipeline, PipelineConfig
         defense = upstream_defense_name(key)
         pipeline = AgentPipeline.from_config(

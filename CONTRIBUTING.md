@@ -30,7 +30,7 @@ pip install -r requirements.txt
 python validate.py
 ```
 
-Expected: `92/92 checks passed`, exit code 0. `validate.py` needs only numpy and scipy —
+Expected: `128/128 checks passed`, exit code 0. `validate.py` needs only numpy and scipy —
 no network, no API key, no AgentDojo. If it does not pass on a clean checkout, stop and
 fix that before doing anything else.
 
@@ -40,15 +40,20 @@ fix that before doing anything else.
 
 1. **Run `validate.py` first.** Establish a green baseline before you change anything.
 2. **Make the change.**
-3. **Run `validate.py` again.** It must still be `92/92`, or `N/N` with your new checks
+3. **Run `validate.py` again.** It must still be `128/128`, or `N/N` with your new checks
    included — never fewer checks than before, and never a `FAIL`.
-4. **If you changed anything under `wf/` or `run_slice.py`, add a check** (see below).
-5. **Run the synthetic rehearsal** if you touched the runner, adapter, or database:
+4. **If you changed anything under `wf/`, `run_slice.py`, or `run_workfactor.py`, add a
+   check** (see below).
+5. **Run the synthetic rehearsals** if you touched the runner, adapter, database, attack,
+   composition, or report:
    ```bash
    python run_slice.py --adapter offline
+   python run_workfactor.py --adapter offline --db runs/wf1_offline.sqlite
+   python dashboard.py runs/wf1_offline.sqlite
    ```
-   Expect `N attempted = N recorded = 144` with every case ending in exactly one of
-   success/failure/error. This output is synthetic and measures the accounting only.
+   Expect `N attempted = N recorded = 144` for the first, 3,024 finalized trials for the
+   second, and a page carrying the SYNTHETIC banner for the third. All of it is synthetic
+   and measures the accounting only.
 6. **Do not run a real slice to test a change.** It costs money and writes trials. Use the
    offline adapter and `--check-config`.
 
@@ -70,6 +75,11 @@ gate.
 | Relax a `CHECK` constraint in `schema.sql` to make a test pass | The constraint is almost certainly correct and the test is wrong |
 | Change `G2_EQUIVALENCE_MARGIN` | δ was frozen before the first run. Changing it after seeing a result is the exact researcher degree of freedom this project removes |
 | Change `DECLARED_MODEL`, `BENCHMARK_VERSION`, `SUITE`, or `ATTACK` in `run_slice.py` | That is a different protocol, not a different setting. It needs an explicit preregistration change, not an edit |
+| Change `DECLARED_MODEL`, `LADDER`, or `DEFAULT_CONFIGS` in `run_workfactor.py` without appending to `PROTOCOL_WF1.md` | Same reason. The plan document's SHA is the preregistration id; the code and the document must move together |
+| Reorder or extend `VARIANT_SCHEDULE` in `wf/attacks.py` | The order is part of the method's identity. A different order is a different `method_id`, not a tweak |
+| Let `wf/compose.py` construct an element that is not an upstream class | The stack must be made of the original implementations; the only thing that is ours is the wiring |
+| Add a `--retry-errors` or similar to `run_workfactor.py` | `--resume` skips every finalized cell, errored ones included; selective retry is the missing-data problem EXPERIMENT.md §7.6 describes |
+| Give `wf/report.py` a way to silence the synthetic banner | The banner is derived from `adapter_registry.evidence_class`; that is the whole point of recording it |
 | Set `PUBLISHED_ASR` to a number from a different task set | v1.2.2's 144 banking pairs are not the paper's 629 cases. A numerical verdict against a quantity never measured here is worse than no verdict |
 | Approximate a defense that has no upstream implementation | A hand-rolled substitute is the "your version was a strawman" objection this project exists to avoid |
 | Add an import that crosses the three-layer boundary | `adapter ↛ analysis`, `analysis ↛ adapter/runner`, `runner ↛ analysis`. Check 9 fails if you do |

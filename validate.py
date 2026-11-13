@@ -1050,6 +1050,168 @@ for name, fn in (("survival_data", db5.survival_data),
 # ---------------------------------------------------------------------------
 print()
 print("=" * 74)
+print("CHECK 20  Defense stacks compose from upstream elements, in the upstream shape")
+print("=" * 74)
+# AgentDojo's factory takes one defense. wf/compose.py fills more than one slot
+# of the SAME pipeline shape with the SAME upstream classes. If the composed
+# shape of a singleton ever differs from the upstream factory's, the stack
+# numbers would be measuring our wiring rather than the defenses.
+import wf.compose as _co
+from wf.compose import (
+    COMPOSABLE, COMPOSE_VERSION, UPSTREAM_SHAPE, impl_ref, impl_source,
+)
+from wf.compose import plan as compose_plan
+
+check("composable set equals the mappable upstream set",
+      set(COMPOSABLE) == set(DEFENSE_NAME_MAP), f"{sorted(COMPOSABLE)}")
+for _name, _shape in UPSTREAM_SHAPE.items():
+    _comps = () if _name == "none" else (_name,)
+    _got = compose_plan(_comps).shape
+    print(f"  {_name:<14} loop={'>'.join(_got[1])}")
+    check(f"plan({_name}) reproduces the upstream pipeline shape", _got == _shape)
+
+_stack = compose_plan(("toolfilter", "spotlight", "repeat_prompt"))
+check("stack plan is canonical (sorted, deduplicated)",
+      _stack.components == ("repeat_prompt", "spotlight", "toolfilter"))
+check("stack fills every member's slot",
+      "OpenAILLMToolFilter" in _stack.top and "InitQuery" in _stack.loop
+      and _stack.delimit_tool_output and bool(_stack.system_suffix))
+_four = compose_plan(("detector", "repeat_prompt", "spotlight", "toolfilter"))
+check("detector precedes the repeated prompt inside the loop",
+      _four.loop.index("TransformersBasedPIDetector") < _four.loop.index("InitQuery"),
+      "the repeated prompt follows sanitised tool output")
+try:
+    compose_plan(("sandwich", "spotlight"))
+    check("stack with an unimplemented member refused", False, "NO EXCEPTION RAISED")
+except ValueError as e:
+    print(f"  ValueError: {str(e)[:80]}...")
+    check("stack with an unimplemented member refused", True)
+check("stack provenance names the composition module and is 'mixed'",
+      impl_source(_stack.components) == "mixed"
+      and f"wf/compose.py@{COMPOSE_VERSION}" in impl_ref(_stack.components, "agentdojo@0.1.35"))
+check("singleton provenance is the upstream reference alone",
+      impl_source(("spotlight",)) == "original" and impl_ref(("spotlight",), "ref") == "ref")
+check("adapter routes stacks to wf.compose",
+      "from wf.compose import build" in pathlib.Path(_ad.__file__).read_text())
+check("compose.py imports nothing from wf", not imports_of(_co),
+      "plan() is testable without the benchmark")
+
+
+# ---------------------------------------------------------------------------
+print()
+print("=" * 74)
+print("CHECK 21  The work-factor attack is fixed, distinct per query, and bounded")
+print("=" * 74)
+import wf.attacks as _at
+from wf.attacks import (
+    MAX_BUDGET, METHOD_ID, VARIANT_SCHEDULE, OfflineVariantAttack, VariantScheduleAttack,
+)
+
+print(f"  method_id={METHOD_ID}  budget={MAX_BUDGET}  schedule={list(VARIANT_SCHEDULE)[:3]}...")
+check("schedule excludes DoS and interactive attacks",
+      not any(n.endswith("_dos") or n == "manual" for n in VARIANT_SCHEDULE))
+check("schedule has no duplicates and defines the budget",
+      len(set(VARIANT_SCHEDULE)) == len(VARIANT_SCHEDULE) == MAX_BUDGET)
+for _cls in (VariantScheduleAttack, OfflineVariantAttack):
+    check(f"{_cls.__name__} is a fixed-arm method with no observe()",
+          _cls.is_learning is False and not hasattr(_cls, "observe"))
+
+_off = OfflineVariantAttack()
+_task0 = OfflineAdapter().tasks("banking")[0]
+_c0 = AttackContext(task=_task0, defense_components=(), model_id="m", seed=0,
+                    injection_task_id="injection_task_0")
+_c1 = AttackContext(task=_task0, defense_components=("spotlight", "toolfilter"), model_id="m",
+                    seed=0, injection_task_id="injection_task_0")
+_pay = [_off.generate(_c0, q) for q in range(1, MAX_BUDGET + 1)]
+check("every query in the budget yields a distinct payload",
+      len({p.text for p in _pay}) == MAX_BUDGET)
+check("per-query telemetry names the template used",
+      [p.mutation_op for p in _pay] == list(VARIANT_SCHEDULE))
+check("payload is identical across defense configurations",
+      _off.generate(_c1, 3).text == _pay[2].text, "the instrument does not adapt to the defense")
+try:
+    _off.generate(_c0, MAX_BUDGET + 1)
+    check("query past the schedule refused", False, "NO EXCEPTION RAISED")
+except RuntimeError as e:
+    print(f"  RuntimeError: {str(e)[:80]}...")
+    check("query past the schedule refused", True, "no replayed payload can pad a curve")
+
+_real = VariantScheduleAttack("banking", "gpt-4o-mini-2024-07-18", "v1.2.2", "agentdojo@0.1.35")
+check("real attack pins the schedule in its hyperparameters",
+      _real.hyperparams["schedule"] == list(VARIANT_SCHEDULE))
+try:
+    _real.generate(_c0, MAX_BUDGET + 1, adapter=None)
+    check("real attack checks the budget before touching the benchmark", False, "NO EXCEPTION RAISED")
+except RuntimeError:
+    check("real attack checks the budget before touching the benchmark", True)
+check("attacks.py does not import analysis",
+      not any("analysis" in i for i in imports_of(_at)))
+
+
+# ---------------------------------------------------------------------------
+print()
+print("=" * 74)
+print("CHECK 22  WF1 runs end to end on the synthetic adapter and the dashboard says so")
+print("=" * 74)
+import contextlib
+import io
+import sys as _sys
+import tempfile
+
+import run_workfactor as _rw
+import wf.report as _rp
+
+_tmp = pathlib.Path(tempfile.mkdtemp()) / "wf1_check.sqlite"
+_argv = ["run_workfactor.py", "--adapter", "offline", "--db", str(_tmp),
+         "--tasks", "2", "--injection-tasks", "2", "--seeds", "3",
+         "--configs", "none", "spotlight", "toolfilter", "spotlight+toolfilter"]
+_buf = io.StringIO()
+with contextlib.redirect_stdout(_buf):
+    _old = _sys.argv
+    _sys.argv = _argv
+    try:
+        _rc = _rw.main()
+    finally:
+        _sys.argv = _old
+print(f"  run_workfactor --adapter offline (2x2 cases, 3 seeds, 4 configs) -> exit {_rc}")
+check("offline WF1 run exits 0", _rc == 0)
+_sum = _rp.collect([str(_tmp)])
+_ok = _sum["n_ok"]
+print(f"  trials ok={_ok}  stage={_sum['stage']}  evidence={_sum['evidence']}  "
+      f"compositions={len(_sum['compositions'])}  ceiling={_sum['ceiling']}")
+check("every cell produced exactly one finalized trial", _ok == 2 * 2 * 3 * 4 and _sum["n_pending"] == 0)
+check("synthetic output landed at harness_test", _sum["stage"] == "harness_test" and _sum["synthetic"])
+check("ceiling equals the last rung of the preregistered ladder", _sum["ceiling"] == _rw.LADDER[-1])
+check("a composition test forms when none, A, B and A+B are present",
+      len(_sum["compositions"]) == 1 and _sum["compositions"][0]["pair"].label == "spotlight+toolfilter")
+_db22 = ExperimentDB(str(_tmp))
+_bad = _db22.conn.execute(
+    "SELECT COUNT(*) n FROM trial WHERE status='ok' AND "
+    "((censored=1 AND event_queries<>budget_ceiling) OR event_queries>budget_ceiling)").fetchone()["n"]
+check("no survival row violates the censoring semantics", _bad == 0)
+check("resume skips every finalized cell",
+      len(_db22.completed_cells("primary", "harness_test", model_id="synthetic-target")) == _ok)
+_html = _rp.render(_sum)
+check("dashboard renders a synthetic run with the synthetic banner",
+      "SYNTHETIC REHEARSAL" in _html and "harness_test" in _html)
+check("censored quantiles render as lower bounds, never bare numbers",
+      "&gt; 11" in _html or all(not c.n_censored for c in _sum["cells"]))
+check("report.py reads only through analysis and db",
+      all(("analysis" in i or "db" in i) and "adapter" not in i and "runner" not in i
+          for i in imports_of(_rp)))
+try:
+    _rp.collect([str(_tmp)], stage="confirm")
+    _n_conf = 0
+except Exception:
+    _n_conf = -1
+check("a confirmatory view of a synthetic database is empty, not relabelled",
+      _n_conf == 0 and _rp.collect([str(_tmp)], stage="confirm")["n_ok"] == 0)
+_db22.conn.close()
+
+
+# ---------------------------------------------------------------------------
+print()
+print("=" * 74)
 n_fail = sum(1 for _, s, _ in results if s == FAIL)
 for name, status, detail in results:
     mark = "ok  " if status == PASS else "FAIL"

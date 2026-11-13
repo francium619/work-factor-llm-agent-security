@@ -5,9 +5,11 @@
 ![python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![agentdojo](https://img.shields.io/badge/agentdojo-0.1.35-informational)
 ![benchmark](https://img.shields.io/badge/benchmark-v1.2.2-informational)
-![validation](https://img.shields.io/badge/local%20validation-92%2F92-brightgreen)
-![status](https://img.shields.io/badge/apparatus-frozen-lightgrey)
-![experiment](https://img.shields.io/badge/G2%20experiment-not%20completed-orange)
+![validation](https://img.shields.io/badge/local%20validation-128%2F128-brightgreen)
+![status](https://img.shields.io/badge/apparatus-WF1%20extended-lightgrey)
+![experiment](https://img.shields.io/badge/G2%20experiment-unexecutable%20(target%20retired)-orange)
+![wf1](https://img.shields.io/badge/WF1%20protocol-preregistered%2C%20not%20run-orange)
+![license](https://img.shields.io/badge/license-MIT-blue)
 
 ---
 
@@ -33,17 +35,22 @@ all.
 
 | | |
 |---|---|
-| **Apparatus** | Frozen at commit `157f22d` |
-| **Validation** | **92 / 92** checks pass locally (`python validate.py`, exit 0) |
+| **Apparatus** | G2 core frozen at commit `157f22d`; WF1 arm added Nov 2026 (attack schedule, stack composition, driver, dashboard) |
+| **Validation** | **128 / 128** checks pass locally (`python validate.py`, exit 0) |
 | **Benchmark** | AgentDojo package `0.1.35`, benchmark version `v1.2.2` |
 | **Slice** | `banking` — 16 user tasks × 9 injection tasks = **144 security cases** |
-| **G2 protocol run** | **Pending — not completed** |
+| **G2 protocol run** | **Unexecutable** — its target `gpt-4o-2024-05-13` was retired by OpenAI on 2026-10-23; never completed |
+| **WF1 protocol** | **Preregistered** ([PROTOCOL_WF1.md](PROTOCOL_WF1.md)), rehearsed end to end on the synthetic adapter, **not yet run on a real target** |
 | **Real experimental result** | **None yet** |
 
 Badges and the table above are static and hand-verified. There is no CI here, and
-**nothing in this repository reports an experimental result.** `92/92` describes the
+**nothing in this repository reports an experimental result.** `128/128` describes the
 *apparatus* passing its own test suite against planted synthetic ground truth — it is not
-92 successful experiments. See [Current Status](#current-status) for the full picture.
+128 successful experiments. See [Current Status](#current-status) for the full picture.
+
+**Hackathon readers:** start with [HACKATHON.md](HACKATHON.md) (what the demo shows, what was
+built when, the on-campus run plan) and [PROTOCOL_WF1.md](PROTOCOL_WF1.md) (the plan the data
+will be bound to).
 
 ---
 
@@ -238,8 +245,11 @@ assume. `scale='log_odds'` is retained as a robustness check for unsaturated bas
 
 **Status: implemented and synthetically validated, not a result.** Check 4 recovers each of
 three planted verdicts (independence, destructive interference, synergy). **No real
-composition measurement has been made**, and the grid cannot currently be executed —
-AgentDojo v1.2.2 cannot express a defense stack.
+composition measurement has been made.** The grid is now *executable*: AgentDojo v1.2.2
+cannot express a defense stack, so [`wf/compose.py`](wf/compose.py) builds stacks from
+AgentDojo's own pipeline elements in the upstream pipeline shape (Check 20 proves each
+single-defense composition equals the upstream factory's shape). Stacks are recorded with
+`impl_source='mixed'` and the composition module version in `impl_ref`.
 
 Derivation, verdict semantics, and pair selection: **[EXPERIMENT.md §5](EXPERIMENT.md)**.
 
@@ -273,7 +283,7 @@ implemented as **exceptions and constraints**, so violating one requires an edit
 a diff rather than a moment of inattention.
 
 **Fifteen invariants are encoded structurally**, and all fifteen are exercised by the
-92-check suite. The highlights:
+128-check suite. The highlights:
 
 - **Model isolation** — `survival_data()`, `replication_outcomes()`, and `cost_channels()`
   each require a keyword-only `model_id` with no default. Two models are two experiments;
@@ -295,9 +305,10 @@ a diff rather than a moment of inattention.
 - **No cost blending**, **no model pooling**, **explicit benchmark version**, **explicit
   attack/defense implementation references**.
 
-**92 / 92 automated validation checks pass at the frozen apparatus state.** To be precise
-about what that means: some checks verify an estimator recovers a *planted* truth; others
-attempt an integrity violation and assert it raises. None of them is an experiment.
+**128 / 128 automated validation checks pass.** To be precise about what that means: some
+checks verify an estimator recovers a *planted* truth; others attempt an integrity violation
+and assert it raises; Check 22 runs the whole WF1 pipeline against the synthetic adapter and
+asserts the dashboard labels the result as synthetic. None of them is an experiment.
 
 Full table of all fifteen with mechanisms: **[ARCHITECTURE.md §5.3](ARCHITECTURE.md)**.
 
@@ -383,19 +394,60 @@ structurally unreachable.
 
 Gates G0–G5, the two ASR tracks, and the pre-spend gate: **[EXPERIMENT.md §9](EXPERIMENT.md)**.
 
+> **G2 is now unexecutable.** OpenAI retired `gpt-4o-2024-05-13` on 2026-10-23.
+> `run_slice.py` still refuses model substitution, which is the correct behaviour: a run on a
+> different model would not be G2. The successor protocol is WF1, below.
+
+---
+
+## WF1 Protocol — the work-factor arm
+
+**Preregistered in [PROTOCOL_WF1.md](PROTOCOL_WF1.md); not yet run on a real target.** WF1 is
+the first protocol under which the survival machinery can produce a curve, because it is the
+first with an attacker whose successive queries differ.
+
+```
+AgentDojo v1.2.2, banking, 144 security cases
+      -> target model: gpt-4o-mini-2024-07-18
+      -> attack: variant_schedule_v1  (11 upstream templates, fixed order, FIXED arm)
+      -> defense grid: none | spotlight | repeat_prompt | toolfilter | the three pairs
+      -> budget ladder [4, 8, 11], sequential escalation, right-censored at 11
+      -> stage: screen (Stage A), 3 seeds preregistered
+      -> outcome: survival curves, censored quantiles, log-rank vs none, composition verdicts
+```
+
+| Piece | File | What it does |
+|---|---|---|
+| Repeated-query fixed attack | `wf/attacks.py` | plays AgentDojo's 11 non-DoS templates in a pinned order; distinct payload per query; raises at query 12 |
+| Stack composition | `wf/compose.py` | builds multi-defense pipelines from upstream elements in the upstream shape; `plan()` is pure and tested |
+| Driver | `run_workfactor.py` | preflight, cost estimate, `--confirm`, `--resume`, `--shard k/n`; refuses model substitution |
+| Dashboard | `wf/report.py`, `dashboard.py` | self-contained HTML; `--serve` re-renders live; synthetic runs carry an unremovable banner |
+
+```bash
+python run_workfactor.py --adapter offline --db runs/wf1_offline.sqlite   # synthetic rehearsal, no spend
+python run_workfactor.py --adapter agentdojo --check-config               # real preflight, no request
+python run_workfactor.py --adapter agentdojo --confirm --db runs/wf1.sqlite --tasks 8 --seeds 1
+python dashboard.py runs/wf1.sqlite --serve 8765
+```
+
+The synthetic rehearsal renders with a banner saying it measures nothing, and its
+composition verdicts come out `additive` everywhere — which is correct, because the synthetic
+adapter multiplies per-defense protections independently by construction.
+
 ---
 
 ## Current Status
 
 | Component | State | Evidence |
 |---|---|---|
-| Measurement apparatus | **Frozen** at `157f22d` | schema, guardrails, runner, adapter, analysis implemented |
-| Automated validation | **92 / 92 pass** | `python validate.py`, exit 0 |
-| Synthetic harness rehearsal | **Complete** | `--adapter offline`: 144 attempted / 144 recorded at `stage='harness_test'` |
-| G2 protocol run | **Not completed** | no real trial has ever been written |
-| Last real attempt | **Failed before the first case** | `insufficient_quota` (HTTP 429); **0 trials** |
+| Measurement apparatus | G2 core **frozen** at `157f22d`; WF1 arm added | schema, guardrails, runner, adapter, analysis, attack schedule, composition, dashboard |
+| Automated validation | **128 / 128 pass** | `python validate.py`, exit 0 |
+| Synthetic harness rehearsal | **Complete** | G2: 144/144 at `harness_test`; WF1: 3,024 trials, 7 configs, 3 seeds at `harness_test` |
+| Real preflight (WF1) | **Passes** | `--check-config`: all 7 pipelines constructed incl. 3 stacks; 11 distinct payloads; no request |
+| G2 protocol run | **Unexecutable** | target retired 2026-10-23; the one attempt had failed on `insufficient_quota` with **0 trials** |
+| WF1 protocol run | **Not started** | preregistered; first real run planned for 28–29 Nov 2026 |
 | Work-factor results | **None** | no survival curve estimated from real data |
-| Composition results | **None** | grid not executed; blocked on upstream stack support |
+| Composition results | **None** | grid executable via `wf/compose.py`; not executed |
 | Model B (Claude arm) | **Deferred** | not implemented |
 
 Two claims this repository deliberately does **not** make: that the work-factor thesis has
@@ -446,15 +498,23 @@ ARCHITECTURE.md      software architecture, data flow, schema, trial lifecycle
 EXPERIMENT.md        methodology, statistical design, protocol, gates
 COMPATIBILITY.md     AgentDojo version/API report and upstream hazards
 CONTRIBUTING.md      changing code without breaking an integrity invariant
+PROTOCOL_WF1.md      the WF1 preregistration; its SHA is bound to the data
+HACKATHON.md         demo guide and on-campus run plan
+LICENSE              MIT
 requirements.txt     pinned dependencies
 run_slice.py         the G2 banking slice: preflight, execution, reporting
-validate.py          92 checks against planted ground truth
+run_workfactor.py    the WF1 arm: grid, ladder, resume, shards, estimate
+dashboard.py         render / serve the dashboard from experiment databases
+validate.py          128 checks against planted ground truth
 wf/schema.sql        SQLite schema — the survival unit and its constraints
 wf/db.py             database access layer and the structural guardrails
 wf/adapter.py        the AgentDojo boundary; attack and target protocols
+wf/attacks.py        the repeated-query fixed attack (11-template schedule)
+wf/compose.py        defense-stack composition from upstream elements
 wf/runner.py         sequential escalation -> exactly one trial per cell
 wf/analysis.py       survival statistics and the composition null
 wf/defenses.py       defense metadata, composition grid, pair scoring, screening
+wf/report.py         the dashboard renderer (reads via analysis + db only)
 ```
 
 | File | Responsibility, in one line |
@@ -466,7 +526,12 @@ wf/defenses.py       defense metadata, composition grid, pair scoring, screening
 | `wf/analysis.py` | All the statistics — hand-rolled so the censoring semantics stay auditable line by line. |
 | `wf/defenses.py` | Defense metadata, composition grid, pair-scoring rule, cost estimator, screening rank. **Contains no defense implementations** — real behaviour comes from the original authors' code. |
 | `run_slice.py` | The G2 slice end to end. Refuses model substitution, refuses to spend without `--confirm`, refuses to let the caller pick the evidence stage. |
-| `validate.py` | 92 checks in 19 groups — estimators recovering planted truths, guardrails asserted to raise. numpy + scipy only. |
+| `wf/attacks.py` | The WF1 attacker: AgentDojo's 11 non-DoS templates in a pinned order, one distinct payload per query, refusing query 12. Fixed arm; sees no feedback. |
+| `wf/compose.py` | Builds a multi-defense pipeline from upstream elements in the upstream shape. `plan()` is pure data; `build()` is the only place agentdojo is touched. |
+| `wf/report.py` | Turns one or more databases into the dashboard. Reads through the guarded API only, so it cannot pool models, arms, or stages; prints the evidence class first. |
+| `run_workfactor.py` | WF1 end to end. Refuses model substitution, refuses to spend without `--confirm`, estimates cost first, resumes without retrying observed outcomes. |
+| `dashboard.py` | Thin CLI over `wf/report.py`; `--serve` re-renders on every request. |
+| `validate.py` | 128 checks in 22 groups — estimators recovering planted truths, guardrails asserted to raise, and the WF1 pipeline run offline. numpy + scipy only. |
 
 ---
 
@@ -541,8 +606,9 @@ python run_slice.py --adapter agentdojo --confirm
    is stronger or weaker than any other.
 3. **No work-factor results exist.** The survival machinery has never been applied to real
    data.
-4. **No composition results exist,** and the grid cannot be executed as-is — AgentDojo
-   v1.2.2's `PipelineConfig.defense` is a single value and cannot express a stack.
+4. **No composition results exist.** The grid is executable through `wf/compose.py`, but
+   the composed stacks have never run against a live target; only pipeline construction has
+   been exercised for real.
 5. **Three of six core defenses have no implementation in pinned AgentDojo** (`sandwich`,
    `dataflow`, `egress_canary`) and are not approximated. A fourth, `transformers_pi_detector`,
    needs `transformers` + `torch`, currently not installed.
@@ -552,7 +618,9 @@ python run_slice.py --adapter agentdojo --confirm
    `tool_filter` is also OpenAI-only and would be unavailable.
 7. **No published ASR is comparable to this protocol**, so the gate is capped at
    `PASS_PROTOCOL_ONLY`.
-8. **The current attack is one-shot**, so G2 produces no survival curve at all.
+8. **The G2 attack is one-shot**, so G2 produces no survival curve at all. The WF1 attack
+   has 11 distinct queries, so its ceiling is 11: a low budget, and a lower bound on attacker
+   capability (no adaptive attacker in the primary arm).
 9. **Benchmark and model versioning constrain every comparison** — hence the frozen
    benchmark version and dated model snapshot on every trial.
 10. **Statistical scope** — no proportional-hazards modelling, no multiple-comparison
@@ -567,19 +635,19 @@ python run_slice.py --adapter agentdojo --confirm
 
 In dependency order:
 
-1. **Complete the G2 protocol run** — the gate that unblocks everything below.
-2. **Wrap repeated-query fixed attacks** so a real budget ladder exists (RQ1).
-3. **Build pipeline composition** wrapping the original defense implementations, since
-   upstream cannot express a stack — the prerequisite for RQ2/RQ3.
-4. **Execute the composition grid** under sequential escalation, with screening feeding a
-   preregistered confirmatory stage.
+1. ~~Complete the G2 protocol run~~ — **superseded**: the target was retired. WF1 replaces it.
+2. ~~Wrap repeated-query fixed attacks~~ — **done**, `wf/attacks.py` (RQ1).
+3. ~~Build pipeline composition~~ — **done**, `wf/compose.py` (prerequisite for RQ2/RQ3).
+4. **Execute WF1 Stage A screening** on the real target, then a preregistered confirmatory
+   stage for the pairs screening promotes.
 5. **Wrap the three unimplemented defenses** from their authors' original code.
 6. **Add the learning attacker** as a strictly secondary arm (RQ4).
 7. **Add Model B** only if protocol support can be established honestly — a separate
    preregistration, never pooled with Model A.
-8. **Visualization / dashboard layer.** Deliberately last: a plotting layer over an
-   unvalidated apparatus is a way to believe things prematurely.
-9. **Broader benchmark coverage** — workspace, travel, slack, each as its own protocol.
+8. ~~Visualization / dashboard layer~~ — **done**, `wf/report.py`; it reads only through the
+   guarded API and labels synthetic data as such.
+9. **Capture token usage from the benchmark** so the USD channels are populated, not zero.
+10. **Broader benchmark coverage** — workspace, travel, slack, each as its own protocol.
 
 ---
 
@@ -591,17 +659,18 @@ In dependency order:
 | **[EXPERIMENT.md](EXPERIMENT.md)** | experimental units, censoring, estimation, the composition null, the G2 protocol and gates, threats to validity |
 | **[COMPATIBILITY.md](COMPATIBILITY.md)** | AgentDojo version namespaces, task counts, API signatures, the five upstream hazards |
 | **[CONTRIBUTING.md](CONTRIBUTING.md)** | how to run validation and change code without breaking an integrity invariant |
+| **[PROTOCOL_WF1.md](PROTOCOL_WF1.md)** | the WF1 preregistration: target, attack schedule, grid, ladder, hypotheses, what will and will not be claimed |
+| **[HACKATHON.md](HACKATHON.md)** | what the demo shows, what was built before and during the event, the on-campus run plan |
 
 ---
 
 ## License / Citation
 
-**No license file is currently present.** Without one, default copyright applies and the
-code is not licensed for reuse. A license should be added before public distribution.
+**MIT License** — see [LICENSE](LICENSE).
 
 **No citation format is offered.** There is no associated publication, preprint, or DOI,
 and this project has produced no experimental results to cite. To reference the apparatus,
-reference the repository and the specific commit — it is frozen at `157f22d`.
+reference the repository and a specific commit.
 
 This project depends on and targets **AgentDojo**, which carries its own license and
 citation requirements; consult the upstream project directly for both.

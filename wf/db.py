@@ -620,6 +620,48 @@ class ExperimentDB:
             "defender_tokens": row["d_tok"],
         }
 
+    # -- resumability ----------------------------------------------------
+    #
+    # A long run can die mid-way. Resuming must never become a selective retry
+    # of OBSERVED outcomes, so the two helpers below distinguish sharply: a
+    # finalized trial (ok OR error) is an observation and is skipped; a trial
+    # still 'pending' never produced an outcome and is removed so the cell can
+    # run once. There is no API that re-runs a finalized cell.
+
+    def prereg(self, prereg_id: str) -> sqlite3.Row | None:
+        return self.conn.execute(
+            "SELECT * FROM prereg WHERE prereg_id = ?", (prereg_id,)
+        ).fetchone()
+
+    def completed_cells(self, arm: str, stage: str, *, model_id: str
+                        ) -> set[tuple[str, str, str, str, int]]:
+        """Cells with a finalized trial, as (config_id, method_id, task_id,
+        injection_task_id, seed). Errored trials count: re-running only the
+        cells that errored is the selective retry EXPERIMENT.md s7.6 forbids."""
+        if arm not in VALID_ARMS:
+            raise ValueError(f"arm must be one of {VALID_ARMS}")
+        if stage not in VALID_STAGES:
+            raise ValueError(f"stage must be one of {VALID_STAGES}")
+        rows = self.conn.execute(
+            "SELECT config_id, method_id, task_id, injection_task_id, seed FROM trial "
+            "WHERE arm=? AND stage=? AND model_id=? AND status IN ('ok','error')",
+            (arm, stage, model_id),
+        )
+        return {(r["config_id"], r["method_id"], r["task_id"],
+                 r["injection_task_id"], r["seed"]) for r in rows}
+
+    def purge_pending(self) -> int:
+        """Delete trials that were opened but never finalized (a crashed run).
+
+        A pending trial has no survival outcome, so removing it discards no
+        observation. Its checkpoints and query rows cascade. Returns the count.
+        """
+        n = self.conn.execute(
+            "SELECT COUNT(*) n FROM trial WHERE status='pending'").fetchone()["n"]
+        self.conn.execute("DELETE FROM trial WHERE status='pending'")
+        self.conn.commit()
+        return int(n)
+
     def configs(self, arm: str) -> list[sqlite3.Row]:
         return list(self.conn.execute(
             """SELECT DISTINCT c.* FROM defense_config c
