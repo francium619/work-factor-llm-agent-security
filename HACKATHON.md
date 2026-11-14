@@ -88,3 +88,52 @@ purged, and no observed outcome is ever re-run (selective retry is forbidden by 
 
 Team Ligga, HackIndia 2026. Repository:
 <https://github.com/francium619/work-factor-llm-agent-security>. License: MIT.
+
+## Problem statement, as submitted on the team page
+
+### Short
+
+LLM agents that read untrusted content such as emails, web pages and bank statements can be
+hijacked by instructions hidden inside that content. Every defense against this is currently
+scored with one number: attack success rate, measured with a single attempt per task. That
+number cannot tell a defense that fails on the first try from one that holds for ten, because
+it never asks how much work the attacker had to do. Real attackers retry.
+
+Work Factor measures the missing quantity. We treat attacker effort as a survival time, the
+number of attempts before a defense first fails, and keep defenses that never fail inside the
+budget as censored observations instead of discarding them. We then test whether stacking two
+defenses buys what operators assume it does, or whether a stack can be worse than its better
+half. The deliverable is a live dashboard of these measurements on the AgentDojo benchmark,
+produced during the hackathon.
+
+### Long
+
+Problem. An LLM agent with tools is only as safe as the text it reads. A hidden instruction in
+an email or a transaction note can make a banking agent transfer money or leak data. This is
+prompt injection, and the field scores defenses against it with attack success rate: run one
+attack per task, count the hits. Two defenses can score identically on that scoreboard while
+one folds on the first attempt and the other holds for hundreds. Operators who stack defenses
+have no measurement at all of whether the stack adds protection, adds nothing, or interferes.
+
+What we measure. Work Factor borrows the idea from cryptography that security is the cost of
+the best known attack, not a yes or no. For each defense we record how many attacker queries
+it took before the first programmatic success, using Kaplan-Meier survival estimation so that
+defenses which never break inside the budget are reported as lower bounds rather than dropped.
+For each pair of defenses we test the independence prediction, that residual risks multiply,
+and classify the stack as additive, better than predicted, worse than predicted, or
+destructive, meaning worse than its own better member.
+
+How. The target is the AgentDojo benchmark, 144 banking security cases, with the benchmark's
+own defenses and its own success checker. The attacker is the 11 published injection templates
+played in a fixed order, so every defense faces the same instrument. Defense stacks are built
+from AgentDojo's own pipeline elements, something its public API cannot do. All of it feeds a
+SQLite database whose constraints make the common mistakes impossible, such as dropping
+censored runs or blending attacker and defender cost.
+
+What exists and what the hackathon adds. The measurement apparatus, 128 automated checks, the
+composition module and the dashboard are built and rehearsed on synthetic data. No real trial
+has been run. During the 28 hours we execute the preregistered protocol on gpt-4o-mini and
+show the curves and composition verdicts forming on a live page.
+
+Why it matters. Anyone choosing or stacking agent defenses today is choosing blind on cost.
+This gives them the number.
